@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function me(uid) { return request.auth != null && request.auth.uid == uid; }
+    function okName(n) { return n is string && n.size() >= 1 && n.size() <= 12; }
+    function okScore(d) { return d.keys().hasOnly(['name', 'money', 'at']) && okName(d.name) && d.money is int && d.money >= 0 && d.money <= 100000000 && d.at == request.time; }
+    function better() { return request.resource.data.money > resource.data.money; }
+
+    // ニックネーム（競輪・競馬で共通）
+    match /keirin_players/{uid} {
+      allow read: if true;
+      allow write: if me(uid) && request.resource.data.keys().hasOnly(['name']) && okName(request.resource.data.name);
+    }
+    // 競輪のランキング
+    match /keirin_days/{date}/scores/{uid} {
+      allow read: if true;
+      allow create: if me(uid) && okScore(request.resource.data);
+      allow update: if me(uid) && okScore(request.resource.data) && better();
+    }
+    // 競馬のランキング
+    match /keiba_days/{date}/scores/{uid} {
+      allow read: if true;
+      allow create: if me(uid) && okScore(request.resource.data);
+      allow update: if me(uid) && okScore(request.resource.data) && better();
+    }
+  }
+}
