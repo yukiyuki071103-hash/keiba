@@ -180,6 +180,7 @@ canvas.hero{width:100%;display:block;border-radius:14px;image-rendering:pixelate
     <div id="modeList"></div>
     <div id="acct" class="acct"></div>
     <button class="btn ghost" id="rankOpen">🏆 今日のランキング（1日モード）</button>
+    <button class="btn ghost" id="starsOpen" style="margin-top:10px">★ 名馬たちの戦績</button>
   </section>
 
   <section id="gameScr" class="hidden">
@@ -335,6 +336,25 @@ const ENG = (() => {
     return {ck, cls:C.name, base:C.base, age:C.age, grade:C.grade||'', surf, D, sky, going, name, N, main:!!C.grade};
   }
 
+  // ---- 名馬（決まった7頭。ときどき出走する明らかに強い馬） ----
+  // edge＝そのレースの基準からどれだけ強いか。j＝騎手（リーディング順位-1）
+  const STARS=[
+    {id:'pk', name:'ポケットキング',   sex:'牡', age:4, style:'先', sp:'芝', dp:2200, gp:0.2,  edge:1.25, coat:0, j:0, silk:['#f2c94c','#1e3a8a'], w:498, note:'芝の中長距離の王者。好位から抜け出す横綱相撲'},
+    {id:'gn', name:'ギンガノオウジャ', sex:'牡', age:5, style:'差', sp:'芝', dp:1600, gp:0,    edge:1.15, coat:3, j:1, silk:['#1e88e5','#ffffff'], w:476, note:'マイルの帝王。直線一気の末脚'},
+    {id:'he', name:'ハロンエンペラー', sex:'牡', age:5, style:'逃', sp:'ダ', dp:1800, gp:0.4,  edge:1.2,  coat:1, j:2, silk:['#e53935','#212121'], w:534, note:'砂の暴君。逃げて後ろを寄せつけない'},
+    {id:'mt', name:'ミラクルティアラ', sex:'牝', age:4, style:'差', sp:'芝', dp:1800, gp:-0.2, edge:1.1,  coat:4, j:0, silk:['#f06292','#ffffff'], w:452, note:'女王。牡馬相手でも鋭く伸びる'},
+    {id:'ij', name:'イナズマジェット', sex:'牡', age:3, style:'逃', sp:'芝', dp:1200, gp:0.1,  edge:1.15, coat:3, j:1, silk:['#fdd835','#212121'], w:488, note:'電撃の短距離王。ゲートから飛ばす'},
+    {id:'ko', name:'クロガネオウ',     sex:'牡', age:6, style:'先', sp:'ダ', dp:1600, gp:0.5,  edge:1.1,  coat:5, j:2, silk:['#212121','#c0ca33'], w:546, note:'鋼の古豪。雨の重い馬場ほど強い'},
+    {id:'yh', name:'ヨゾラノヒカリ',   sex:'牝', age:5, style:'追', sp:'芝', dp:2400, gp:0,    edge:1.2,  coat:2, j:0, silk:['#3949ab','#fdd835'], w:440, note:'長距離の星。最後方から全頭をまとめて差し切る'},
+  ];
+  function kinOf(age, sex, cond){ let kin = age===2?55 : cond.age==='3'?57 : age===3?55:57; if(cond.grade==='GⅠ'&&age>=4) kin=58; if(sex==='牝') kin-=2; return kin; }
+  function starRunner(st, cond, slot){
+    const co=COATS[st.coat], jk=JOCKEYS[st.j];
+    return {name:st.name, ab:cond.base+st.edge, style:st.style, dp:st.dp, sp:st.sp, gp:st.gp, age:st.age, sex:st.sex, kin:kinOf(st.age,st.sex,cond),
+      coat:co[0], cc:[co[1],co[2],co[3]], w:st.w, wd:0, jk:jk.name, jfull:jk.full, js:jk.sk, silk:st.silk, form:[1,1,1], gb:false,
+      star:st.id, no:slot.no, waku:slot.waku};
+  }
+
   // ---- 出走馬 ----
   function genField(rng, cond){
     const N=cond.N, used=new Set(), horses=[];
@@ -378,9 +398,12 @@ const ENG = (() => {
     const pv=H.reduce((a,h)=>a+(h.style==='逃'?1:h.style==='先'?0.3:0),0)+rng.gauss()*0.6;
     const pace=pv>3.3?'H':pv<2.0?'S':'M';
     const early={}, perf={}, deo=[];
+    // 力の抜けた馬は崩れにくい（2番手との力の差が大きいほど、ぶれが小さく底力が出る）
+    const pw=h=>h.ab+(h.fitAll||0)+h.js, srt=H.map(pw).sort((a,b)=>b-a), gap=srt[0]-(srt[1]??srt[0]);
     H.forEach(h=>{
+      const top=pw(h)===srt[0], g2=Math.max(0,gap-0.3), sd=top?0.9*Math.max(0.45,1-g2*1.5):0.9, bonus=top?g2*2.2:0;
       let e=E0[h.style]+rng.gauss()*0.55+(field.N-h.no)/field.N*0.25;
-      let p=(h.ab-c.base)+(h.fitAll||0)+PACE[pace][h.style]+h.js+rng.gauss()*0.9+(c.D<=1400?((field.N+1)/2-h.no)/field.N*0.3:0)-(h.kin-55)*0.03;
+      let p=(h.ab-c.base)+(h.fitAll||0)+PACE[pace][h.style]+h.js+bonus+rng.gauss()*sd+(c.D<=1400?((field.N+1)/2-h.no)/field.N*0.3:0)-(h.kin-55)*0.03;
       if(rng()<(h.gb?0.16:0.025)){ e-=4; p-=0.35; deo.push(h.no); }
       early[h.no]=e; perf[h.no]=p;
     });
@@ -430,6 +453,10 @@ const ENG = (() => {
   function genRace(seed, no){
     const rng=makeRng(seed), cond=raceCond(seed,no);
     const field=genField(rng,cond);
+    // 名馬：メインの11Rだけ、35%で。条件（芝ダート・距離）が合う名馬だけが出てくる
+    { const sr=makeRng(seed+'star'), k=((no-1)%12)+1, ch=k===11?0.35:0;
+      if(sr()<ch){ const el=STARS.filter(st=>st.sp===cond.surf&&Math.abs(st.dp-cond.D)<=300);
+        if(el.length){ const st=sr.pick(el), i=sr.int(0,field.N-1), top=Math.max(...field.horses.filter((_,j)=>j!==i).map(h=>h.ab)); field.horses[i]=starRunner(st,cond,field.horses[i]); field.horses[i].ab=Math.max(cond.base+st.edge*0.6, top+0.42); } } }
     field.horses.forEach(h=>{ const f=fit(h,cond); h.fit=f; h.fitAll=f.all; });
     const {pr,win}=computeProbs(field, makeRng(seed+'mc'), 9000);
     const odds={};
@@ -471,6 +498,7 @@ const ENG = (() => {
   // ---- 短評（4文字以内のひとこと。1レースの中で同じ短評は使わない） ----
   // グループ: [1=好材料 -1=不安材料 0=その他, 意味, 言い回し]
   const TG={
+    star:[1,'ときどき出てくる名馬。明らかに強い',['名馬降臨','絶対王者','王者の風格','格の違い']],
     top:[1,'メンバーの中で能力が一番の実力馬',['力が違う','断然主役','譲れない','主役候補']],
     upper:[1,'このクラスでは能力が上のほう',['地力上位','能力上位','上位争い','力上位']],
     young:[1,'古馬に挑む3歳馬。まだ伸びしろがある',['伸び盛り','成長力','3歳勢い']],
@@ -518,6 +546,7 @@ const ENG = (() => {
     const cands=H.map(h=>{
       const C=[]; const add=(p,g)=>C.push([p+rng()*0.6,g]);
       const f=h.fit, z=h.ab-c.base, F=h.form;
+      if(h.star) add(9,'star');
       if(h.pop===1) add(5,'top'); else if(z>0.45) add(3.5,'upper');
       if(z<-0.6&&h.pop>=N-2) add(3,'weak');
       if(f.s<-0.5) add(6, c.surf==='芝'?'dirtOnly':'turfOnly');
@@ -584,6 +613,7 @@ const ENG = (() => {
     else if(nE===0) text=`逃げ馬がおらん、スローになるで。前に行ける◎${h}番が有利や。`;
     else text=`流れは平均的。素直に力上位の◎${h}番から行くで。`;
     if(hole) text+=`☆${hole.n}番は条件ぴったりで一発あるで。`;
+    const st=H.find(x=>x.star); if(st) text=`名馬${st.name}が出てきよった。${st.no===h?'逆らうだけ損や。':'けどワシは◎'+h+'番で勝負や！'}`+text;
     return {marks, h, t, a, picks, text};
   }
 
@@ -616,7 +646,7 @@ const ENG = (() => {
     }
     return winKeys(race)[btId].includes(key)?'win':'lose';
   }
-  return {TG, TPG, makeRng, hashStr, genRace, raceCond, sim, kimarite, combos, winKeys, judge, payout, per100, BET_TYPES, keyO, keyU, keyOf, wakuOf, STYLE_NAME, JOCKEYS, MARG, fit};
+  return {STARS, TG, TPG, makeRng, hashStr, genRace, raceCond, sim, kimarite, combos, winKeys, judge, payout, per100, BET_TYPES, keyO, keyU, keyOf, wakuOf, STYLE_NAME, JOCKEYS, MARG, fit};
 })();
 
 // ===== 競馬レース画面（内馬場から追うカメラの側面視点） =====
@@ -711,7 +741,9 @@ const RaceView = (() => {
     put(15,form(c4,sp*0.7),n=>gain[n]>1?2.4+Math.min(2.6,gain[n]*0.35):lE[n]*0.8);
     // 直線で順位を上げる馬（追い込む馬）は外へ持ち出す
     const cross=race.cross, sg={}; c4.forEach((n,i)=>sg[n]=i-cross.indexOf(n));
-    const fanL={}; c4.forEach((n,i)=>fanL[n]= sg[n]>=2 ? Math.min(6.3,3.6+sg[n]*0.35+rng()*0.4) : 0.3+((i*1.3+rng()*0.4)%3.4));
+    // 追い込む馬は大外へ持ち出すか、内ラチ沿いを突く（およそ3頭に1頭は内から）
+    const inside={}; c4.forEach(n=>inside[n]=sg[n]>=2&&rng()<0.35);
+    const fanL={}; c4.forEach((n,i)=>fanL[n]= inside[n] ? 0.25+rng()*0.6 : sg[n]>=2 ? Math.min(6.3,3.6+sg[n]*0.35+rng()*0.4) : 1.1+((i*1.3+rng()*0.4)%2.8));
     put(16,form(c4,sp*0.6),n=>fanL[n]);
     const g19=form(c4,Math.min(2.0,sp*0.7)); put(19,g19,n=>fanL[n]);
     const gF={}; let cm=0;
@@ -725,8 +757,12 @@ const RaceView = (() => {
     nos.forEach(n=>{ const k=K[n]; k.forEach((p,i)=>{ p[3]=0; if(!i) return; const rA=nos.filter(m=>K[m][i-1]&&K[m][i-1][1]<k[i-1][1]).length, rB=nos.filter(m=>K[m][i]&&K[m][i][1]<p[1]).length; if(rB<rA&&p[0]>3) p[3]=Math.min(1.4,0.5*(rA-rB)); }); });
     const crash=race.acc&&race.acc.type==='CHU'?race.acc.no:null;
     const bigGain=[...c4].sort((a,b)=>gain[b]-gain[a])[0];
-    const surger=cross.slice(0,3).sort((a,b)=>sg[b]-sg[a])[0];
-    return {K, nos, crash, crashT:11.2, bigGain, sg, surger};
+    // 実況で名前を呼ぶ追い込み馬は、着順に関係なく選ぶ（呼ばれた馬が必ず勝つわけではない）
+    const closers=c4.filter(n=>sg[n]>=2).sort((a,b)=>sg[b]-sg[a]).slice(0,4);
+    const surger=closers.length?closers[Math.floor(rng()*closers.length)]:null;
+    const surger2=closers.filter(n=>n!==surger)[0]||null;
+    const where=n=>fanL[n]<1.3?'内から':fanL[n]>4.2?'大外から':'馬群の間を割って';
+    return {K, nos, crash, crashT:11.2, bigGain, sg, surger, surger2, where};
   }
   function at(k,t){
     if(t<=k[0][0]) return [k[0][1],k[0][2]];
@@ -840,17 +876,20 @@ const RaceView = (() => {
       draw(t);
       if(t<1) say('a', tor ? `${tor}番は発走直前に競走除外。${P.nos.length}頭でスタート` : 'ゲートが開いた！ 各馬いっせいにスタート');
       if(s.deo.length&&t>=1.3) say('a2',`${s.deo.join('番と')}番が出遅れた！`);
+      else { const st=race.horses.find(h=>h.star&&h.no!==tor); if(st&&t>=1.3) say('a2',`注目は名馬${st.name}、${st.no}番！`); }
       if(t>=2.9) say('b',`ハナを切るのは${eo[0]}番 ${hz(eo[0]).name}。2番手に${eo[1]}番`);
       if(t>=7.5) say('c',`3コーナー、残り600m。${{H:'速い流れで隊列は縦長！',M:'平均的なペース',S:'ゆったりした流れ、馬群は一団'}[s.pace]} 最後方は${eo[eo.length-1]}番`);
       if(P.crash&&t>=P.crashT) say('x',`あっと${P.crash}番、競走中止！`);
       if(t>=12.5) say('d',`4コーナー、外から${P.bigGain}番が上がってきた！`);
       if(t>=16) say('e',`直線コースに入った！ 残り400、先頭は${s.c4[0]}番！`);
-      const sgN=P.sg[P.surger]||0;
-      if(t>=20.5&&sgN>=3) say('e2',`外から${P.surger}番！ ものすごい脚で追い込んでくる！`);
+      if(t>=20.5&&P.surger) say('e2',`${P.where(P.surger)}${P.surger}番！ ものすごい脚で追い込んでくる！`);
       if(t>=24){ const ld=P.nos.filter(n=>!(n===P.crash&&t>P.crashT)).map(n=>({n,x:state(P,n,t).x})).sort((a,b)=>b.x-a.x)[0].n;
-        say('f', sgN>=2&&ld!==P.surger ? `残り200！ 先頭は${ld}番、${P.surger}番が猛然と迫る！` : `残り200！ ${ld}番が先頭、後続も必死に追う！`); }
+        const ch=[P.surger2,P.surger].find(n=>n&&n!==ld);
+        say('f', ch ? `残り200！ 先頭は${ld}番、${P.where(ch)}${ch}番が迫る！` : `残り200！ ${ld}番が先頭、後続も必死に追う！`); }
       if(t>=29.3){ const ld=P.nos.filter(n=>!(n===P.crash&&t>P.crashT)).map(n=>({n,x:state(P,n,t).x})).sort((a,b)=>b.x-a.x)[0].n, w=race.cross[0];
-        say('g', ld!==w ? `${ld}番粘る！ ${P.sg[w]>=2?'大外から':'外から'}${w}番が並びかける！` : race.margins[0][1]<=1.2 ? `${w}番か！ ${race.cross[1]}番か！` : `${w}番、先頭でゴールへ！`); }
+        // 勝ち馬だけを名指しせず、競り合う馬を2頭以上あげる
+        const oth=race.cross.slice(0,3).filter(n=>n!==w&&n!==ld)[0];
+        say('g', ld!==w ? `${ld}番粘る！ ${P.where(w)}${w}番！ ${oth?oth+'番も来た！':''}` : race.margins[0][1]<=1.2 ? `${w}番か！ ${race.cross[1]}番か！` : `${w}番が先頭！ ${race.cross[1]}番も追う！`); }
       if(t>=TG+0.05){ if(photo) say('h','ゴールイン！ 際どい… 写真判定'); else say('h',`ゴールイン！ 1着は${race.cross[0]}番 ${hz(race.cross[0]).name}！`); }
       if(kou&&t>=TG+0.05+(photo?1.6:0)) say('k',`審議ランプ点灯… ${race.acc.no}番が降着`);
       const h=H(t), rem=D-h;
@@ -956,7 +995,34 @@ const rNum = () => mode === 'day' ? S.raceNo : ((relNo() - 1) % 12) + 1;
 // 何日続いたか（例：3日目の7Rまで）
 const lifeTxt = r => r <= 0 ? '1Rも走らず' : `${Math.floor((r - 1) / 12) + 1}日目の${((r - 1) % 12) + 1}Rまで`;
 const seedNow = () => mode === 'day' ? `day:${S.day.date}:${S.day.seed}:${S.raceNo}` : `${mode}:${S.seed}:${S.raceNo}`;
-function makeRace() { race = ENG.genRace(seedNow(), rNum()); race.label = rLabel(); }
+function makeRace() { race = ENG.genRace(seedNow(), rNum()); race.label = rLabel(); applyStarForm(); }
+
+// ===== 名馬の戦績（端末に保存。全モード共通） =====
+const Stars = {
+  KEY: 'keiba_stars_v1',
+  load() { let d = null; try { d = JSON.parse(lsGet(this.KEY) || 'null'); } catch (e) {} return d && typeof d === 'object' ? d : {}; },
+  get(id) { return this.load()[id] || { n: 0, w: 0, streak: 0, best: 0, L: [] }; },
+  // 遊んだレースの結果を書き込む。戻り値は結果画面のお知らせ用
+  record(r) {
+    const h = r.horses.find(x => x.star); if (!h) return null;
+    if (r.acc && r.acc.type === 'TOR' && r.acc.no === h.no) return null;
+    const d = this.load(), x = d[h.star] || { n: 0, w: 0, streak: 0, best: 0, L: [] };
+    const p = r.order.indexOf(h.no) + 1;   // 0＝競走中止
+    x.n++; if (p === 1) { x.w++; x.streak++; x.best = Math.max(x.best, x.streak); } else x.streak = 0;
+    x.L.unshift([p || '止', r.cond.name.replace(/（.*）/, '')]); x.L = x.L.slice(0, 6);
+    d[h.star] = x; lsSet(this.KEY, JSON.stringify(d));
+    return { name: h.name, p, ...x };
+  },
+};
+const starInfo = h => ENG.STARS.find(x => x.id === h.star);
+function applyStarForm() { race.horses.forEach(h => { if (h.star) { const x = Stars.get(h.star); if (x.L.length) h.form = x.L.map(e => typeof e[0] === 'number' ? e[0] : 16).slice(0, 5); } }); }
+function showStars() {
+  openModal(`<h3>★ 名馬たち <button class="ibtn" data-close>閉じる</button></h3>
+    <p class="hint">ときどき出走する、明らかに強い7頭。11Rの重賞だけに、条件（芝・ダートと距離）が合うときに出てきます。戦績はあなたの端末で遊んだレースだけを数えます。</p>
+    ${ENG.STARS.map(st => { const x = Stars.get(st.id); return `<div class="card" style="padding:10px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><b style="font-size:16px">${esc(st.name)}</b><span class="odds">${x.n ? `${x.n}戦${x.w}勝` : '未対戦'}</span></div>
+      <div class="sub" style="white-space:normal;margin:2px 0 4px">${st.sex}${st.age} ・ ${st.sp === '芝' ? '芝' : 'ダート'}${st.dp}m前後 ・ ${ENG.STYLE_NAME[st.style]} ・ ${esc(st.note)}</div>
+      ${x.n ? `<div class="sub">${x.streak >= 2 ? `<b style="color:var(--gold)">${x.streak}連勝中</b> ・ ` : ''}最多連勝 ${x.best} ・ 近走 ${x.L.map(e => e[0] + (typeof e[0] === 'number' ? '着' : '')).join(' ')}</div>` : ''}</div>`; }).join('')}`);
+}
 
 // ===== 精算 =====
 function settle(r, groups) {
@@ -985,11 +1051,12 @@ function settle(r, groups) {
   if (mode === 'day') { if (pay > 0) S.day.hits++;
     const best = out.flatMap(g => g.keys.filter(k => g.st[k] === 'win').map(k => ({ amt: ENG.payout(g.unit, g.odds[k]), type: btById(g.bt).name, key: k, race: r.label }))).sort((a, b) => b.amt - a.amt)[0];
     if (best && (!S.day.best || best.amt > S.day.best.amt)) S.day.best = best; }
+  const star = Stars.record(r);
   const wasFinal = mode === 'day' && S.raceNo >= 12;
   S.raceNo++; S.seed = randSeed(); S.groups = []; S.racing = false;
   if (wasFinal) finishDay();
   saveMode();
-  return { groups: out, spent, pay, ref, yHit, race: r, wasFinal };
+  return { groups: out, spent, pay, ref, yHit, race: r, wasFinal, star };
 }
 function finishDay() { S.day.finished = true; if (S.rec.bal == null || S.bal > S.rec.bal) S.rec.bal = S.bal; }
 
@@ -1008,7 +1075,7 @@ function renderRace() {
   const P = race.papers, mc = m => m === '◎' || m === '○' ? 'm1' : m === '▲' ? 'm2' : m ? 'm3' : '';
   $('entHead').innerHTML = `<tr><th class="st1">馬番</th><th class="st2">馬名<br>性齢 斤量 騎手</th><th class="num">単勝<br>人気</th><th>短評</th>${P.map((p, i) => `<th class="pm ${i ? '' : 'hon'}">${p.name}</th>`).join('')}<th>脚質<br>近走</th><th class="num">馬体重<br>増減</th><th class="num">複勝</th></tr>`;
   $('entries').innerHTML = race.horses.map(h => `<tr><td class="st1">${wkH(h.no)}</td>
-    <td class="st2"><span class="hname hl" data-hno="${h.no}">${esc(h.name)}</span><span class="sub">${h.sex}${h.age} ${h.kin.toFixed(1)} ${h.jk}</span></td>
+    <td class="st2"><span class="hname hl" data-hno="${h.no}">${esc(h.name)}</span>${h.star ? '<span class="gw">★名馬</span>' : ''}<span class="sub">${h.sex}${h.age} ${h.kin.toFixed(1)} ${h.jk}</span></td>
     <td class="num"><span class="odds ${h.pop === 1 ? 'pop1' : ''}">${h.tan.toFixed(1)}</span><span class="sub">${h.pop}人気</span></td>
     <td><span class="tp ${h.tps > 0 ? 'up' : h.tps < 0 ? 'dn' : ''}">${h.tp}</span></td>
     ${P.map((p, i) => `<td class="pm ${i ? '' : 'hon'} ${mc(p.marks[h.no])}">${p.marks[h.no] || ''}</td>`).join('')}
@@ -1029,6 +1096,7 @@ function showHorse(no) {
   const going = c.going === '良' ? '—' : aptMark(f.g, [0.12, -0.02, -0.15]);
   openModal(`<h3><span>${wkH(no)} ${esc(h.name)}</span><button class="ibtn" data-close>閉じる</button></h3>
     <div class="cond" style="margin:-4px 0 10px"><span>${h.sex}${h.age}</span><span>${h.coat}</span><span style="color:${TYPE_C[h.style]}">${ENG.STYLE_NAME[h.style]}</span><span>斤量 ${h.kin.toFixed(1)}</span><span>${h.w}kg（${h.wd > 0 ? '+' : ''}${h.wd}）</span></div>
+    ${h.star ? (() => { const st = starInfo(h), x = Stars.get(h.star); return `<div class="note" style="color:var(--gold);margin:-2px 0 10px;font-size:14px">★ 名馬　${esc(st.note)}<br>あなたの前での戦績：${x.n ? `${x.n}戦${x.w}勝${x.streak >= 2 ? `（${x.streak}連勝中）` : ''}` : '初対戦'}</div>`; })() : ''}
     <div class="note" style="margin:-2px 0 10px;font-size:14px">短評 <span class="tp ${h.tps > 0 ? 'up' : h.tps < 0 ? 'dn' : ''}">${h.tp}</span>　${ENG.TG[ENG.TPG[h.tp]][1]}</div>
     <div class="kv"><div><small>騎手</small><b>${h.jfull}</b><small>リーディング ${ji}位</small></div><div><small>単勝 ／ 複勝</small><b>${h.tan.toFixed(1)}倍</b><small>${h.pop}番人気 ・ 複勝 ${h.fk.toFixed(1)}倍</small></div></div>
     <h2>このレースへの適性（${CONFIG.YOSO_NAME}調べ）</h2>
@@ -1255,6 +1323,7 @@ function showResult(res) {
   if (r.acc && r.acc.type === 'TOR') note += `<div class="note">${r.acc.no}番は発走直前に競走除外。${r.acc.no}番を含む馬券は全額返還です（枠連は、その枠で走る馬がいなくなった組み合わせだけ返還）。</div>`;
   if (r.acc && r.acc.type === 'CHU') note += `<div class="note">${r.acc.no}番は3コーナーで競走中止（返還なし）。</div>`;
   if (r.acc && r.acc.type === 'KOU') note += `<div class="note">審議の結果、${r.acc.no}番は${r.acc.over}番の進路を妨害したため降着。払戻は確定した着順で行います。</div>`;
+  if (res.star) { const x = res.star; note += x.p === 1 ? `<div class="note" style="color:var(--gold)">★ 名馬${esc(x.name)}、貫禄の勝利。通算${x.n}戦${x.w}勝${x.streak >= 2 ? `、${x.streak}連勝` : ''}。</div>` : `<div class="note" style="color:#ff9a9a">★ 名馬${esc(x.name)}、まさかの${x.p ? x.p + '着' : '競走中止'}…！ 通算${x.n}戦${x.w}勝。</div>`; }
   if (r.margins[0] && r.margins[0][1] <= 0.3 && !(r.acc && r.acc.type === 'KOU')) note += `<div class="note">写真判定の結果、1着と2着の差は${r.margins[0][0]}。</div>`;
   $('rNote').innerHTML = note;
   const win = ENG.winKeys(r);
@@ -1456,6 +1525,7 @@ function showStats() {
   $('resetStats').onclick = () => confirmBox('成績をリセットしますか？　所持金はそのままです。', 'リセットする', () => { S.stats = newStats(); S.broke = 0; if (mode === 'rich') S.maxAsset = S.bal; if (mode === 'simple') { S.lives = []; S.lifeBest = null; S.lifeStart = S.raceNo; S.lifeMax = S.bal; } saveMode(); toast('成績をリセットしました'); });
 }
 $('statsBtn').onclick = showStats;
+$('starsOpen').onclick = showStars;
 $('oddsBtn').onclick = showOdds;
 function showTanpyo() {
   const cl = v => v > 0 ? 'up' : v < 0 ? 'dn' : '';
