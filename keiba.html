@@ -1209,8 +1209,11 @@ $('startBtn').onclick = () => {
       done: () => { $('skipBtn').classList.add('hidden'); showOverlay(r); setTimeout(() => showResult(settle(r, groups)), 1600); },
     }); };
   running = null;
-  // 重賞はファンファーレから
-  if (r.cond.main && Sound.on) { const f = $('fanf'); f.classList.remove('hidden'); f.innerHTML = `♪ ファンファーレ ♪<br><span style="font-size:15px;color:var(--gold)">${esc(r.cond.name)}</span>`; Sound.play('fanfare'); $('comm').textContent = ''; $('live').textContent = ''; fanT = setTimeout(go, 3400); }
+  // ファンファーレ（GⅠ・重賞・特別・平場で4種類）
+  Sound.bgmStop();
+  const fk = r.cond.grade === 'GⅠ' ? 'g1' : r.cond.main ? 'g' : /特別|ステークス/.test(r.cond.name) ? 'sp' : 'flat';
+  const fd = Sound.fanfare(fk);
+  if (fd) { const f = $('fanf'); f.classList.remove('hidden'); f.innerHTML = `♪ ファンファーレ ♪<br><span style="font-size:15px;color:var(--gold)">${esc(r.cond.name)}</span>`; $('comm').textContent = ''; $('live').textContent = ''; fanT = setTimeout(() => { fanT = null; go(); }, fd * 1000 + 300); }
   else go();
 };
 let fanT = null;
@@ -1254,6 +1257,7 @@ function showResult(res) {
   $('resultCard').classList.remove('hidden');
   setTimeout(() => $('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   if (mode === 'rich' && res.pay >= 1e6) { jackpot(); Sound.play('jackpot'); } else if (res.pay > 0) Sound.play('win');
+  setTimeout(() => { if (phase === 'result') Sound.bgmStart('res'); }, res.pay > 0 ? 1600 : 600);
 }
 $('nextBtn').onclick = () => { if (lastResult && lastResult.wasFinal) { showDaySummary(); return; } toBet(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 function toBet() {
@@ -1263,6 +1267,7 @@ function toBet() {
   $('comm').textContent = ''; $('live').textContent = '';
   $('dayRestart').classList.toggle('hidden', !(mode === 'day' && !S.day.finished));
   makeRace(); renderRace(); renderTabs(); renderSheet(); renderTickets(); renderBal(); checkBroke(); drawFace($('face'));
+  Sound.bgmStart('bet');
   if (mode === 'day' && S.day.finished) {
     ['betCard', 'entryCard', 'yosoCard', 'startBtn'].forEach(id => $(id).classList.add('hidden'));
     const b = $('reviveBtn'); b.classList.remove('hidden'); b.textContent = '🏆 結果を見る・もう一度挑戦'; b.onclick = showDaySummary;
@@ -1364,13 +1369,14 @@ async function renderAccount() {
 async function submitDay() {
   const d = S.day, note = () => $('subNote');
   if (d.submitted) { if (note()) note().textContent = d.submitted === 'lower' ? '今日の自己ベストに届かなかったため、ランキングは更新されません。' : '今日の自己ベストとしてランキングに記録しました。'; return; }
-  if (!Net.configured() || !(await Net.ok())) { if (note()) note().classList.add('hidden'); return; }
+  if (!Net.configured()) { if (note()) note().textContent = 'ランキングは未設定です（keiba-firebase-config.js が見つかりません）。'; return; }
+  if (!(await Net.ok())) { if (note()) note().textContent = 'ランキングに接続できませんでした。通信のよい場所で、この画面を開き直してください。'; return; }
   if (!Net.signedIn() || !Net.nick) {
     if (note()) { note().innerHTML = 'ログインするとこの結果をランキングに載せられます。<button class="btn sm" id="subLogin" style="margin-top:8px">Googleでログインして記録する</button>'; $('subLogin').onclick = () => Net.signedIn() ? nickDialog(showDaySummary) : login(showDaySummary); }
     return;
   }
   try { d.submitted = await Net.submit(d.date, S.bal); saveMode(); submitDay(); renderRanking($('rankBox')); }
-  catch (e) { if (note()) note().textContent = 'ランキングに記録できませんでした。この画面を開き直すと再送します。'; }
+  catch (e) { console.warn(e); if (note()) note().textContent = `ランキングに記録できませんでした（${(e && (e.code || e.message)) || '不明なエラー'}）。この画面を開き直すと再送します。`; }
 }
 async function showDaySummary() {
   const d = S.day, diff = S.bal - MODES.day.start;
@@ -1390,7 +1396,8 @@ async function showDaySummary() {
 async function renderRanking(box) {
   if (!box) return;
   box.innerHTML = '<div class="empty">ランキングを読み込み中…</div>';
-  if (!Net.configured() || !(await Net.ok())) { box.innerHTML = '<div class="empty">ランキングは準備中です。</div>'; return; }
+  if (!Net.configured()) { box.innerHTML = '<div class="empty">ランキングは未設定です（keiba-firebase-config.js が見つかりません）。</div>'; return; }
+  if (!(await Net.ok())) { box.innerHTML = '<div class="empty">ランキングに接続できませんでした。</div>'; return; }
   try {
     const today = jstDate(), yest = jstDate(-1);
     const [top, me, y1] = await Promise.all([Net.top(today, 20), Net.mine(today), Net.top(yest, 1)]);
@@ -1400,7 +1407,7 @@ async function renderRanking(box) {
       + `<div class="note">あなたの順位：${me ? `${me.rank}位 / ${me.total}人（${yen(me.money)}円）` : Net.signedIn() ? '本日の記録なし' : 'ログインすると表示されます'}</div>`
       + `<div class="note">昨日の1位：${y1[0] ? `${esc(y1[0].name)}　${yen(y1[0].money)}円` : '記録なし'}</div>`
       + '<p class="hint">1日モードの12R終了時の所持金で順位を付けます（日付は日本時間）。何回挑戦しても、載るのはその日の自己ベストだけ。同額なら先に記録した人が上位。</p>';
-  } catch (e) { console.warn(e); box.innerHTML = '<div class="empty">ランキングを読み込めませんでした。時間をおいて開き直してください。</div>'; }
+  } catch (e) { console.warn(e); box.innerHTML = `<div class="empty">ランキングを読み込めませんでした（${esc((e && (e.code || e.message)) || '不明なエラー')}）。</div>`; }
 }
 $('rankOpen').onclick = () => { openModal(`<h3>🏆 1日モード ランキング <button class="ibtn" data-close>閉じる</button></h3><div id="rankBox"></div>`); renderRanking($('rankBox')); };
 
@@ -1439,25 +1446,92 @@ window.addEventListener('hashchange', tpHash); setTimeout(tpHash, 0);
 $('dayRestart').onclick = () => confirmBox('今の挑戦をやめて、新しい12レースで最初からやり直しますか？　今回の所持金は記録されません。', 'やり直す', () => { S.groups = []; restartDay(); });
 
 // ===== 効果音（Web Audioで合成。音声ファイルなし） =====
+// 音量の段階：0＝消音、1＝効果音とファンファーレ、2＝それに馬券を選ぶ間のBGMも（曲はすべてこのゲームのためのオリジナル）
+const mf = m => 440 * Math.pow(2, (m - 69) / 12);
+const mkTrack = (MEL, ROOT, STEP, kick) => {
+  const BASS = []; ROOT.forEach(r => { for (let i = 0; i < 8; i++) { const x = Array.isArray(r) ? (i < 4 ? r[0] : r[1]) : r; BASS.push(x + [0, 12, 7, 12][i % 4]); } });
+  const MELS = []; MEL.forEach(([m, l]) => { MELS.push([m, l]); for (let i = 1; i < l; i++) MELS.push(null); });
+  return { MELS, BASS, STEP, LEN: MELS.length, kick };
+};
+const BGM = {};
+// 馬券を選ぶ間の曲（120BPM・8分音符単位。[音(MIDI番号, 0は休み), 長さ]）
+BGM.bet = (() => {
+  const MEL = [
+    [76,2],[79,2],[84,2],[79,2], [81,3],[79,1],[76,2],[72,2], [77,2],[81,2],[84,3],[81,1], [79,4],[74,2],[79,2],
+    [76,2],[79,2],[84,2],[88,2], [86,2],[84,2],[81,2],[76,2], [77,2],[81,2],[83,2],[86,2], [84,6],[0,2],
+    [79,1],[81,1],[79,1],[76,1],[72,2],[76,2], [81,2],[84,2],[83,2],[81,2], [81,1],[79,1],[77,2],[81,2],[84,2], [83,2],[81,2],[79,2],[74,2],
+    [76,2],[77,1],[79,1],[84,2],[79,2], [81,2],[88,2],[86,2],[84,2], [86,2],[84,2],[83,2],[79,2], [84,4],[79,2],[76,2],
+  ];
+  return mkTrack(MEL, [48,45,41,43,48,45,[38,43],48, 48,45,41,43,48,45,[38,43],48], 0.25, true);
+})();
+// ゴール後の曲（ウイニングランのイメージ。100BPM、ゆったり）
+BGM.res = mkTrack([
+  [81,3],[79,1],[77,2],[72,2], [76,2],[79,2],[84,4], [86,3],[84,1],[81,2],[77,2], [82,4],[81,2],[79,2],
+  [77,2],[81,2],[84,2],[81,2], [79,3],[77,1],[76,2],[79,2], [82,2],[81,2],[79,2],[76,2], [77,6],[0,2],
+], [41,36,38,34,41,36,[34,36],41], 0.3, false);
 const Sound = {
-  on: lsGet('keiba_sound_v1') === '1',
-  ctx: null, out: null, buf: null, live: new Set(),
+  level: (() => { const v = lsGet('keiba_sound_v1'); return v === '2' ? 2 : v === '1' ? 1 : 0; })(),
+  get on() { return this.level >= 1; },
+  ctx: null, out: null, buf: null, live: new Set(), pulse: null,
   ensure() {
     if (!this.on) return null;
     try {
       if (!this.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
         this.ctx = new AC(); this.out = this.ctx.createGain(); this.out.gain.value = 0.5; this.out.connect(this.ctx.destination);
-        const n = this.ctx.sampleRate * 2; this.buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate); const d = this.buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; }
+        const n = this.ctx.sampleRate * 2; this.buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate); const d = this.buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+        // 25%パルス波（ファミコン風のメロディ用）
+        const N = 32, re = new Float32Array(N), im = new Float32Array(N); for (let k = 1; k < N; k++) im[k] = 2 / (k * Math.PI) * Math.sin(k * Math.PI * 0.25); this.pulse = this.ctx.createPeriodicWave(re, im); }
       if (this.ctx.state === 'suspended') this.ctx.resume();
     } catch (e) { return null; }
     return this.ctx;
   },
-  set(v) { this.on = v; lsSet('keiba_sound_v1', v ? '1' : '0'); if (v) { this.ensure(); this.play('win'); } else this.stop(); renderSnd(); },
+  set(v) { this.level = v; lsSet('keiba_sound_v1', String(v)); if (v) { this.ensure(); this.play('win'); } else this.stop(); if (v === 2 && (phase === 'bet' || phase === 'result')) this.bgmStart(phase === 'bet' ? 'bet' : 'res'); else this.bgmStop(); renderSnd(); },
   stop() { this.live.forEach(n => { try { n.stop(); } catch (e) {} }); this.live.clear(); },
   src(node, t0, t1) { this.live.add(node); node.onended = () => this.live.delete(node); node.start(t0); node.stop(t1); },
   env(t0, peak, atk, dec) { const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + atk); g.gain.exponentialRampToValueAtTime(0.0001, t0 + atk + dec); return g; },
-  tone(type, f, t0, peak, atk, dec) { const c = this.ctx, o = c.createOscillator(), g = this.env(t0, peak, atk, dec); o.type = type; o.frequency.value = f; o.connect(g).connect(this.out); this.src(o, t0, t0 + atk + dec + 0.05); return o; },
+  tone(type, f, t0, peak, atk, dec, dest) { const c = this.ctx, o = c.createOscillator(), g = this.env(t0, peak, atk, dec); if (type === 'pulse') o.setPeriodicWave(this.pulse); else o.type = type; o.frequency.value = f; o.connect(g).connect(dest || this.out); this.src(o, t0, t0 + atk + dec + 0.05); return o; },
   noise(t0, dur, fType, f, q) { const c = this.ctx, s = c.createBufferSource(); s.buffer = this.buf; s.loop = true; const fl = c.createBiquadFilter(); fl.type = fType; fl.frequency.value = f; fl.Q.value = q; s.connect(fl); this.src(s, t0, t0 + dur); return fl; },
+  // 金管風の1音（のこぎり波＋1オクターブ下）
+  brass(m, t, l, v = 0.08) { this.tone('sawtooth', mf(m), t, v, 0.02, l); this.tone('square', mf(m - 12), t, v * 0.45, 0.02, l); },
+  // ファンファーレ。種類ごとの長さ（秒）を返す
+  fanfare(kind) {
+    if (!this.on || !this.ensure()) return 0;
+    const t = this.ctx.currentTime + 0.05;
+    const run = (N, chord, at, len) => { N.forEach(([m, d, l]) => this.brass(m, t + d, l)); if (chord) chord.forEach(m => this.tone('triangle', mf(m), t + at, 0.09, 0.05, len)); };
+    if (kind === 'g1') { // GⅠ：2つのフレーズ＋ティンパニのロール
+      run([[67,0,.13],[67,.15,.13],[72,.3,.13],[76,.45,.28],[79,.75,.6], [81,1.55,.18],[79,1.75,.18],[76,1.95,.18],[72,2.15,.18],[74,2.35,.28],[76,2.65,.28],[79,2.95,.28],[84,3.3,1.5]], [60,64,67,72], 3.3, 1.6);
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t + 2.3); g.gain.exponentialRampToValueAtTime(0.35, t + 3.3); g.gain.exponentialRampToValueAtTime(0.0001, t + 4.6);
+      this.noise(t + 2.3, 2.4, 'lowpass', 140, 1).connect(g).connect(this.out);
+      return 5.0;
+    }
+    if (kind === 'g') { run([[67,0,.16],[72,.18,.16],[76,.36,.16],[79,.54,.5],[76,1.1,.16],[79,1.28,.16],[81,1.46,.16],[84,1.64,1.3]], [60,64,67], 1.64, 1.4); return 3.2; }
+    if (kind === 'sp') { run([[67,0,.14],[72,.16,.14],[76,.32,.14],[79,.48,.42],[76,.95,.14],[79,1.12,.9]], [60,67], 1.12, 0.9); return 2.2; }
+    run([[72,0,.14],[76,.16,.14],[79,.32,.6]], null); return 1.1;
+  },
+  // ---- BGM（馬券を選んでいる間だけ流す） ----
+  bgm: null,
+  bgmStart(name = 'bet') {
+    if (this.level < 2 || !this.ensure()) return;
+    if (this.bgm) { if (this.bgm.name === name) return; this.bgmStop(); }
+    const T = BGM[name];
+    const c = this.ctx, g = c.createGain(); g.gain.value = 0.0001; g.gain.exponentialRampToValueAtTime(1, c.currentTime + 0.6); g.connect(this.out);
+    const B = { g, name, step: 0, next: c.currentTime + 0.1 };
+    const tick = () => {
+      while (B.next < c.currentTime + 0.3) {
+        const i = B.step % T.LEN, t = B.next, mel = T.MELS[i];
+        if (mel && mel[0]) { this.tone('pulse', mf(mel[0]), t, T.kick ? 0.055 : 0.045, 0.01, mel[1] * T.STEP * 0.9, g); if (!T.kick) this.tone('sine', mf(mel[0] + 12), t, 0.02, 0.005, 0.5, g); }
+        this.tone('triangle', mf(T.BASS[i]), t, T.kick ? 0.11 : 0.09, 0.01, T.STEP * 0.8, g);
+        if (i % 2) { const e = this.env(t, T.kick ? 0.025 : 0.012, 0.002, 0.04); this.noise(t, 0.06, 'highpass', 7000, 1).connect(e).connect(g); }
+        if (T.kick && i % 4 === 0) { const o = this.tone('sine', 110, t, 0.09, 0.003, 0.12, g); o.frequency.exponentialRampToValueAtTime(45, t + 0.12); }
+        B.step++; B.next += T.STEP;
+      }
+    };
+    tick(); B.timer = setInterval(tick, 60); this.bgm = B;
+  },
+  bgmStop() {
+    const B = this.bgm; if (!B) return; this.bgm = null; clearInterval(B.timer);
+    try { const t = this.ctx.currentTime; B.g.gain.cancelScheduledValues(t); B.g.gain.setValueAtTime(B.g.gain.value, t); B.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4); setTimeout(() => { try { B.g.disconnect(); } catch (e) {} }, 600); } catch (e) {}
+  },
   play(name) {
     if (!this.on || !this.ensure()) return;
     const c = this.ctx, t = c.currentTime + 0.01;
@@ -1471,10 +1545,6 @@ const Sound = {
       this.noise(t, 10.1, 'bandpass', 700, 0.4).connect(g).connect(this.out);
       const g2 = c.createGain(); g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(0.1, t + 6.5); g2.gain.exponentialRampToValueAtTime(0.0001, t + 9.5);
       this.noise(t, 10.1, 'bandpass', 1900, 1.2).connect(g2).connect(this.out);
-    } else if (name === 'fanfare') { // オリジナルのファンファーレ
-      const N = [[392, 0, .16], [523, .18, .16], [659, .36, .16], [784, .54, .5], [659, 1.1, .16], [784, 1.28, .16], [880, 1.46, .16], [1047, 1.64, 1.3]];
-      N.forEach(([f, d, l]) => { this.tone('sawtooth', f, t + d, 0.08, 0.02, l); this.tone('square', f / 2, t + d, 0.04, 0.02, l); });
-      [[262, 1.64], [330, 1.64], [392, 1.64]].forEach(([f, d]) => this.tone('triangle', f, t + d, 0.1, 0.05, 1.4));
     } else if (name === 'win') {
       [523, 659, 784, 1047].forEach((f, i) => this.tone('square', f, t + i * 0.09, 0.09, 0.005, i === 3 ? 0.4 : 0.1));
     } else if (name === 'jackpot') {
@@ -1483,8 +1553,10 @@ const Sound = {
     }
   },
 };
-function renderSnd() { $('sndBtn').textContent = Sound.on ? '🔊' : '🔇'; $('sndBtn').title = Sound.on ? '効果音：オン' : '効果音：オフ'; }
-$('sndBtn').onclick = () => { Sound.set(!Sound.on); toast(Sound.on ? '効果音オン（マナーモードだと鳴らないことがあります）' : '効果音オフ'); };
+const SND_L = [['🔇', '音：オフ'], ['🔊', '効果音とファンファーレ'], ['🎵', '効果音＋BGM']];
+function renderSnd() { $('sndBtn').textContent = SND_L[Sound.level][0]; $('sndBtn').title = SND_L[Sound.level][1]; }
+$('sndBtn').onclick = () => { Sound.set((Sound.level + 1) % 3); toast(['音：オフ', '効果音とファンファーレ：オン（マナーモードだと鳴らないことがあります）', 'BGMもオン'][Sound.level]); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) Sound.bgmStop(); else if (phase === 'bet') Sound.bgmStart('bet'); else if (phase === 'result') Sound.bgmStart('res'); });
 
 // ===== モーダル・トースト =====
 function openModal(html, opt = {}) { $('sheetBox').onclick = null; $('sheetBox').innerHTML = html; $('modal').classList.remove('hidden'); $('modal').classList.toggle('center', !!opt.center); $('sheetBox').scrollTop = 0; }
@@ -1523,7 +1595,11 @@ function drawHero() {
     const t = (now - t0) / 1000;
     g.fillStyle = '#7cc4ff'; g.fillRect(0, 0, W, 14); g.fillStyle = '#3f7f45'; g.fillRect(0, 10, W, 4);
     g.fillStyle = '#f4f4f4'; g.fillRect(0, 14, W, 1);
-    for (let y = 15; y < H - 6; y++) for (let x = 0; x < W; x += 2) { const st = ((Math.floor((x + t * 90) / 30)) + (y >> 4)) % 2; g.fillStyle = st ? '#55b455' : '#4ba84c'; g.fillRect(x, y, 2, 1); }
+    // 芝の縞（流れるように動かす）
+    const sh = (t * 90) % 60;
+    for (let y = 15; y < H - 6; y += 16) { const h = Math.min(16, H - 6 - y), odd = (y >> 4) % 2;
+      g.fillStyle = odd ? '#4ba84c' : '#55b455'; g.fillRect(0, y, W, h);
+      g.fillStyle = odd ? '#55b455' : '#4ba84c'; for (let x = -sh; x < W; x += 60) g.fillRect(Math.round(x + 30), y, 30, h); }
     g.fillStyle = '#f4f4f4'; g.fillRect(0, H - 6, W, 2); for (let x = -((t * 90) % 16); x < W; x += 16) g.fillRect(x | 0, H - 4, 1, 3);
     g.fillStyle = '#3f8f4a'; g.fillRect(0, H - 3, W, 3);
     HERO.forEach((h, i) => {
@@ -1534,7 +1610,7 @@ function drawHero() {
   })(t0);
 }
 function showTitle() {
-  phase = 'title'; mode = null;
+  phase = 'title'; mode = null; Sound.bgmStop();
   $('titleScr').classList.remove('hidden'); $('gameScr').classList.add('hidden');
   ['modeChip', 'statsBtn', 'balBox'].forEach(id => $(id).classList.add('hidden'));
   const d = peekMode('day'), r = peekMode('rich'), s = peekMode('simple'), today = jstDate();
